@@ -1,0 +1,62 @@
+{
+  "windsurfer_min": 16,
+  "windsurfer_max": 27,
+  "wingfoiler_min": 11,
+  "wingfoiler_max": 20,
+  "windsurfer_icon": "windsurfer_icon.png",
+  "wingfoiler_icon": "wingfoiler_icon.png",
+  "controls_timeout": 3,
+  "panel_layout": {
+    "atm": {
+      "x": 21,
+      "y": 435,
+      "w": 295,
+      "h": 215
+    },
+    "water": {
+      "x": 21,
+      "y": 311,
+      "w": 295,
+      "h": 120
+    },
+    "next": {
+      "x": 20,
+      "y": 145,
+      "w": 295,
+      "h": 155
+    },
+    "clock": {
+      "x": 577,
+      "y": 114,
+      "w": 395,
+      "h": 668
+    },
+    "graph": {
+      "x": 237,
+      "y": 1472,
+      "w": 638,
+      "h": 265
+    }
+  },
+  "font_panel_title": 10,
+  "font_label": 11,
+  "font_value": 16,
+  "font_unit": 10,
+  "font_timestamp": 9,
+  "font_clock_phase": 11,
+  "font_clock_heading": 10,
+  "font_clock_value": 16,
+  "font_clock_time": 10,
+  "font_clock_small": 8,
+  "font_clock_wlevel": 15,
+  "font_graph": 9,
+  "color_accent": "#44cccc",
+  "color_dim": "#bbbbbb",
+  "color_fg": "#ffffff",
+  "panel_atm_visible": 1,
+  "panel_water_visible": 1,
+  "panel_next_visible": 1,
+  "panel_clock_visible": 1,
+  "panel_graph_visible": 1,
+  "show_panel_titles": 1
+}
