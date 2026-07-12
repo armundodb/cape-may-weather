@@ -71,6 +71,14 @@ _DEFAULTS: dict = {
     "panel_graph_visible": 1,
     # Title bar (1 = always show, 0 = always hide)
     "show_panel_titles":   1,
+    # Inky Impression e-ink output
+    "inky_orientation": "portrait",   # "portrait" (480x800) or "landscape" (800x480)
+    "inky_saturation":  60,           # colour punch 0-100 mapped to 0.0-1.0
+    "inky_refresh_min": 30,           # headless auto-refresh interval (minutes)
+    "inky_flip":         0,           # 1 = rotate 180° for an upside-down mount
+    # Per-element layout overrides from the Inky Preview editor (kept as a dict,
+    # like panel_layout). Must be listed here or _load_settings() would drop it.
+    "inky_layout":    None,
 }
 
 _PANEL_DEFAULTS: dict = {
@@ -210,9 +218,15 @@ class _DraggablePanel:
     MIN_H  = 80
     HANDLE = 10
 
-    # Corner cursor names that work on Windows and Linux
-    _CURSORS = {"nw": "size_nw_se", "se": "size_nw_se",
-                "ne": "size_ne_sw", "sw": "size_ne_sw"}
+    # Corner resize cursors. Windows uses "size_*"; X11 (Linux) / macOS use
+    # directional corner names. Picked per-platform so the app runs on the Pi.
+    import sys as _sys
+    _CURSORS = ({"nw": "size_nw_se", "se": "size_nw_se",
+                 "ne": "size_ne_sw", "sw": "size_ne_sw"}
+                if _sys.platform.startswith("win") else
+                {"nw": "top_left_corner",  "se": "bottom_right_corner",
+                 "ne": "top_right_corner", "sw": "bottom_left_corner"})
+    del _sys
 
     def __init__(self, canvas: tk.Canvas, title: str,
                  x: int, y: int, w: int, h: int,
@@ -258,9 +272,14 @@ class _DraggablePanel:
         # ── Corner resize handles ──────────────────────────────────────────
         self._handles: dict[str, tk.Frame] = {}
         for corner in ("nw", "ne", "sw", "se"):
-            hf = tk.Frame(self.frame, bg=MM_ACC,
-                          width=self.HANDLE, height=self.HANDLE,
-                          cursor=self._CURSORS[corner])
+            try:
+                hf = tk.Frame(self.frame, bg=MM_ACC,
+                              width=self.HANDLE, height=self.HANDLE,
+                              cursor=self._CURSORS[corner])
+            except tk.TclError:
+                # Unknown cursor name on this platform — fall back to default.
+                hf = tk.Frame(self.frame, bg=MM_ACC,
+                              width=self.HANDLE, height=self.HANDLE)
             rx = 1.0 if "e" in corner else 0.0
             ry = 1.0 if "s" in corner else 0.0
             hf.place(relx=rx, rely=ry, anchor=corner)
@@ -419,6 +438,11 @@ class WeatherApp:
                              font=("Arial", 10, "bold"), relief=tk.FLAT,
                              padx=8, pady=4, cursor="hand2")
         self.btn.pack(side=tk.LEFT, padx=(0, 6))
+        tk.Button(ctrl, text="⟳  Sync Inky",
+                  command=self._open_inky_preview,
+                  bg="#3a1a4c", fg=MM_FG, activebackground="#5522aa",
+                  font=("Arial", 10, "bold"), relief=tk.FLAT,
+                  padx=8, pady=4, cursor="hand2").pack(side=tk.LEFT, padx=(0, 6))
         tk.Button(ctrl, text="⚙  Settings",
                   command=self._open_settings,
                   bg="#1a2a1a", fg=MM_FG, activebackground="#2a3a2a",
@@ -1452,6 +1476,36 @@ class WeatherApp:
         tab_disp = tk.Frame(nb, padx=14, pady=10)
         nb.add(tab_disp, text="  Display  ")
 
+        # Inky Impression (e-ink) output
+        lf_inky = ttk.LabelFrame(tab_disp, text="  Inky Impression (E-Ink)  ",
+                                 padding=(12, 6))
+        lf_inky.pack(fill=tk.X, pady=(0, 10))
+        tk.Label(lf_inky, text="Orientation:", font=("Arial", 10),
+                 anchor="w").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=3)
+        inky_orient_var = tk.StringVar(
+            value=self.settings.get("inky_orientation", "portrait"))
+        ttk.Combobox(lf_inky, textvariable=inky_orient_var, state="readonly",
+                     width=22, font=("Arial", 10),
+                     values=["portrait (480×800)", "landscape (800×480)"]
+                     ).grid(row=0, column=1, sticky="w")
+        # Show the friendly label but keep the stored value clean
+        inky_orient_var.set("landscape (800×480)"
+                            if self.settings.get("inky_orientation") == "landscape"
+                            else "portrait (480×800)")
+        inky_sat_sb = _spinbox(lf_inky, 1, 0, "inky_saturation", 0, 100,
+                               "Colour saturation", "%")
+        inky_refresh_sb = _spinbox(lf_inky, 2, 0, "inky_refresh_min", 1, 1440,
+                                   "Auto-refresh every", "min")
+        inky_flip_var = tk.IntVar(value=self.settings.get("inky_flip", 0))
+        tk.Checkbutton(lf_inky, text="Flip 180° (upside-down mount)",
+                       variable=inky_flip_var, font=("Arial", 10)
+                       ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        tk.Label(lf_inky,
+                 text="Refresh rate controls the headless updater "
+                      "(runs with no monitor attached).",
+                 font=("Arial", 8), fg="#777777", wraplength=320, justify="left"
+                 ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
+
         # Auto-hide
         lf_t = ttk.LabelFrame(tab_disp,
                                text="  Auto-hide Controls (Full Screen)  ",
@@ -1557,6 +1611,18 @@ class WeatherApp:
             for key, var in panel_vis_vars.items():
                 new[f"panel_{key}_visible"] = var.get()
             new["show_panel_titles"] = show_titles_var.get()
+            new["inky_orientation"] = ("landscape"
+                                       if inky_orient_var.get().startswith("landscape")
+                                       else "portrait")
+            try:
+                new["inky_saturation"] = max(0, min(100, int(inky_sat_sb.get())))
+            except ValueError:
+                new["inky_saturation"] = _DEFAULTS["inky_saturation"]
+            try:
+                new["inky_refresh_min"] = max(1, min(1440, int(inky_refresh_sb.get())))
+            except ValueError:
+                new["inky_refresh_min"] = _DEFAULTS["inky_refresh_min"]
+            new["inky_flip"] = inky_flip_var.get()
             self._save_settings(new)
             if self._wind_startup_done:
                 self._apply_wind_icon_rules()
@@ -1569,6 +1635,384 @@ class WeatherApp:
         tk.Button(btn_row, text="Save", command=_save,
                   bg="#0055aa", fg="white", activebackground="#0077cc",
                   font=("Arial", 10, "bold"), padx=14, pady=4).pack(side=tk.LEFT)
+
+    # ── Inky Impression (e-ink) export ─────────────────────────────────────────
+
+    def _gather_inky_payload(self) -> dict:
+        """Collect already-fetched data into the payload the renderer expects."""
+        s = self.settings
+
+        def gv(key):
+            try:
+                return self.vars[key].get()
+            except Exception:
+                return "N/A"
+
+        spd = self._last_wind_speed
+        sports = []
+        if spd is not None:
+            if s["windsurfer_min"] <= spd <= s["windsurfer_max"]:
+                sports.append("Windsurf")
+            if s["wingfoiler_min"] <= spd <= s["wingfoiler_max"]:
+                sports.append("Wingfoil")
+
+        return {
+            "station":   STATION_NAME,
+            "timestamp": datetime.now().strftime("%b %d  %-I:%M %p"),
+            "conditions": {
+                "air_temp":    gv("air_temp"),
+                "wind_speed":  gv("wind_speed"),
+                "wind_gust":   gv("wind_gust"),
+                "wind_dir":    gv("wind_dir"),
+                "water_level": gv("water_level"),
+                "water_temp":  gv("water_temp"),
+            },
+            "tide": {
+                "type":   gv("tide_type"),
+                "time":   gv("tide_time"),
+                "height": gv("tide_height"),
+            },
+            "graph": self._last_gd,
+            "sport": " + ".join(sports) if sports else None,
+        }
+
+    def _render_inky_image(self, return_meta=False):
+        """Build the full-resolution PIL image for the panel (current settings)."""
+        import inky_render
+        orient = self.settings.get("inky_orientation", "portrait")
+        out = inky_render.render_eink(self._gather_inky_payload(), orient,
+                                      settings=self.settings, return_meta=return_meta)
+        if return_meta:
+            img, meta = out
+            return img, meta, orient
+        return out, orient
+
+    # ── Inky Preview / Layout Editor ───────────────────────────────────────────
+
+    def _open_inky_preview(self) -> None:
+        """Interactive layout editor: click text fields to select (Shift or drag a
+        box to multi-select), arrow keys nudge, +/- resize font. Saved to config."""
+        from tkinter import messagebox
+        try:
+            from PIL import ImageTk  # noqa: F401
+            img, meta, orient = self._render_inky_image(return_meta=True)
+        except Exception as e:
+            messagebox.showerror("Inky Preview",
+                                 f"Could not render preview:\n{e}", parent=self.root)
+            return
+
+        sh = self.root.winfo_screenheight()
+        sw = self.root.winfo_screenwidth()
+        scale = min((sh - 200) / img.height, (sw - 380) / img.width, 1.6)
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Inky Preview — Layout Editor")
+        dlg.configure(bg="#222222")
+        # Wayland/XWayland tends to open Tk pop-ups behind the parent — force it
+        # to a visible spot and bring it to the front.
+        dlg.geometry("+60+40")
+        dlg.lift()
+        dlg.attributes("-topmost", True)
+        dlg.after(400, lambda: dlg.winfo_exists() and dlg.attributes("-topmost", False))
+        dlg.focus_force()
+
+        body = tk.Frame(dlg, bg="#222222")
+        body.pack(padx=12, pady=12)
+
+        canvas = tk.Canvas(body, bg="#dddddd", highlightthickness=1,
+                           highlightbackground="#000000",
+                           width=int(img.width * scale), height=int(img.height * scale),
+                           cursor="hand2")
+        canvas.grid(row=0, column=0, rowspan=2)
+
+        # ── right-hand control column ──────────────────────────────────────────
+        side = tk.Frame(body, bg="#222222")
+        side.grid(row=0, column=1, sticky="n", padx=(12, 0))
+        tk.Label(side, text="LAYOUT EDITOR", bg="#222222", fg="#ffffff",
+                 font=("Arial", 11, "bold")).pack(anchor="w")
+        help_txt = ("Click a field to select it.\n"
+                    "Shift-click adds to selection.\n"
+                    "Drag a box to select several.\n\n"
+                    "Arrow keys — nudge (1 px)\n"
+                    "Shift+Arrow — nudge (10 px)\n"
+                    "+ / −  — font size\n"
+                    "  (graph: +/− resizes it)\n"
+                    "Esc / click empty — deselect\n\n"
+                    "Every change auto-saves to\ncape_may_weather.json and\n"
+                    "is what the panel shows.")
+        tk.Label(side, text=help_txt, bg="#222222", fg="#bbbbbb", justify="left",
+                 font=("Arial", 9)).pack(anchor="w", pady=(4, 10))
+
+        ed_status = tk.StringVar(value="Nothing selected.")
+        tk.Label(side, textvariable=ed_status, bg="#222222", fg="#88cc88",
+                 justify="left", wraplength=210, font=("Arial", 9)).pack(anchor="w")
+
+        btns = tk.Frame(side, bg="#222222")
+        btns.pack(anchor="w", pady=(14, 0))
+        send_btn = tk.Button(btns, text="  Send to Inky ▶  ",
+                             bg="#5522aa", fg="white", activebackground="#6633bb",
+                             font=("Arial", 11, "bold"), relief=tk.FLAT,
+                             padx=12, pady=6, cursor="hand2")
+        send_btn.pack(anchor="w", pady=(0, 6))
+        tk.Button(btns, text="↻ Refresh data", command=lambda: self._ed_render(),
+                  bg="#333", fg="white", relief=tk.FLAT, font=("Arial", 10),
+                  padx=10, pady=5, cursor="hand2").pack(anchor="w", pady=(0, 6))
+        tk.Button(btns, text="⟲ Reset layout", command=self._ed_reset,
+                  bg="#333", fg="white", relief=tk.FLAT, font=("Arial", 10),
+                  padx=10, pady=5, cursor="hand2").pack(anchor="w", pady=(0, 6))
+        tk.Button(btns, text="Close", command=dlg.destroy,
+                  bg="#333", fg="white", relief=tk.FLAT, font=("Arial", 10),
+                  padx=10, pady=5, cursor="hand2").pack(anchor="w")
+
+        # editor state
+        self._ed = {
+            "dlg": dlg, "canvas": canvas, "scale": scale, "orient": orient,
+            "img": img, "meta": meta, "tkimg": None, "img_item": None,
+            "sel": set(), "status": ed_status, "send_btn": send_btn,
+            "render_job": None, "save_job": None, "press": None, "band": None,
+        }
+        send_btn.config(command=lambda: self._push_to_inky(
+            self._ed["img"], ed_status, send_btn))
+
+        canvas.bind("<ButtonPress-1>", self._ed_on_press)
+        canvas.bind("<B1-Motion>", self._ed_on_motion)
+        canvas.bind("<ButtonRelease-1>", self._ed_on_release)
+        for key in ("<Left>", "<Right>", "<Up>", "<Down>",
+                    "<Shift-Left>", "<Shift-Right>", "<Shift-Up>", "<Shift-Down>"):
+            dlg.bind(key, self._ed_on_arrow)
+        for key in ("<plus>", "<KP_Add>", "<equal>"):
+            dlg.bind(key, lambda e: self._ed_font(+1))
+        for key in ("<minus>", "<KP_Subtract>", "<underscore>"):
+            dlg.bind(key, lambda e: self._ed_font(-1))
+        dlg.bind("<Escape>", lambda e: self._ed_set_selection(set()))
+        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
+        dlg.focus_set()
+
+        self._ed_blit()          # show current render on the canvas
+
+    # -- editor internals ---------------------------------------------------------
+
+    def _ed_over_root(self) -> dict:
+        """The per-orientation override dict inside settings["inky_layout"]."""
+        lay = self.settings.get("inky_layout")
+        if not isinstance(lay, dict):
+            lay = {}
+            self.settings["inky_layout"] = lay
+        o = self._ed["orient"]
+        if not isinstance(lay.get(o), dict):
+            lay[o] = {}
+        return lay[o]
+
+    def _ed_blit(self) -> None:
+        """Push the current PIL image + selection overlay onto the canvas."""
+        from PIL import ImageTk
+        ed = self._ed
+        s = ed["scale"]
+        disp = ed["img"].resize((max(1, int(ed["img"].width * s)),
+                                 max(1, int(ed["img"].height * s))))
+        ed["tkimg"] = ImageTk.PhotoImage(disp)
+        c = ed["canvas"]
+        if ed["img_item"] is None:
+            ed["img_item"] = c.create_image(0, 0, anchor="nw", image=ed["tkimg"])
+        else:
+            c.itemconfig(ed["img_item"], image=ed["tkimg"])
+        self._ed_draw_overlay()
+
+    def _ed_draw_overlay(self) -> None:
+        ed = self._ed
+        c = ed["canvas"]
+        s = ed["scale"]
+        c.delete("sel")
+        for eid in ed["sel"]:
+            m = ed["meta"].get(eid)
+            if not m:
+                continue
+            l, t, r, b = m["bbox"]
+            c.create_rectangle(l * s - 2, t * s - 2, r * s + 2, b * s + 2,
+                               outline="#ff2266", width=2, tags="sel")
+        n = len(ed["sel"])
+        if n == 0:
+            ed["status"].set("Nothing selected.")
+        else:
+            ed["status"].set(f"{n} selected: " + ", ".join(sorted(ed["sel"])))
+
+    def _ed_render(self) -> None:
+        """Re-fetch layout from settings, re-render the image, refresh canvas."""
+        ed = self._ed
+        ed["render_job"] = None
+        try:
+            img, meta, _ = self._render_inky_image(return_meta=True)
+        except Exception as e:
+            ed["status"].set(f"Render error: {e}")
+            return
+        ed["img"], ed["meta"] = img, meta
+        self._ed_blit()
+
+    def _ed_schedule_render(self) -> None:
+        ed = self._ed
+        if ed["render_job"]:
+            ed["dlg"].after_cancel(ed["render_job"])
+        ed["render_job"] = ed["dlg"].after(90, self._ed_render)
+
+    def _ed_save(self) -> None:
+        try:
+            _CONFIG_FILE.write_text(json.dumps(self.settings, indent=2))
+        except Exception:
+            pass
+
+    def _ed_schedule_save(self) -> None:
+        ed = self._ed
+        if ed["save_job"]:
+            ed["dlg"].after_cancel(ed["save_job"])
+        ed["save_job"] = ed["dlg"].after(400, self._ed_save)
+
+    def _ed_hit(self, ix, iy):
+        """Return the id of the smallest element whose box contains image px (ix,iy)."""
+        best, best_area = None, None
+        for eid, m in self._ed["meta"].items():
+            l, t, r, b = m["bbox"]
+            if l <= ix <= r and t <= iy <= b:
+                area = (r - l) * (b - t)
+                if best_area is None or area < best_area:
+                    best, best_area = eid, area
+        return best
+
+    def _ed_set_selection(self, ids) -> None:
+        self._ed["sel"] = set(ids)
+        self._ed_draw_overlay()
+
+    def _ed_on_press(self, event) -> None:
+        ed = self._ed
+        s = ed["scale"]
+        ix, iy = event.x / s, event.y / s
+        ed["press"] = (event.x, event.y, bool(event.state & 0x0001))  # shift?
+        hit = self._ed_hit(ix, iy)
+        ed["_press_hit"] = hit
+        ed["band"] = None
+
+    def _ed_on_motion(self, event) -> None:
+        ed = self._ed
+        if ed.get("_press_hit") is not None or ed["press"] is None:
+            return  # started on an element → treat as click, not a band
+        c = ed["canvas"]
+        x0, y0, _shift = ed["press"]
+        if ed["band"] is None:
+            if abs(event.x - x0) < 4 and abs(event.y - y0) < 4:
+                return
+            ed["band"] = c.create_rectangle(x0, y0, event.x, event.y,
+                                            outline="#3399ff", dash=(4, 3), tags="band")
+        c.coords(ed["band"], x0, y0, event.x, event.y)
+
+    def _ed_on_release(self, event) -> None:
+        ed = self._ed
+        s = ed["scale"]
+        c = ed["canvas"]
+        if ed["press"] is None:
+            return
+        x0, y0, shift = ed["press"]
+        if ed["band"] is not None:                       # rubber-band select
+            l, t = min(x0, event.x) / s, min(y0, event.y) / s
+            r, b = max(x0, event.x) / s, max(y0, event.y) / s
+            inside = {eid for eid, m in ed["meta"].items()
+                      if not (m["bbox"][2] < l or m["bbox"][0] > r
+                              or m["bbox"][3] < t or m["bbox"][1] > b)}
+            ed["sel"] = (ed["sel"] | inside) if shift else inside
+            c.delete("band")
+            ed["band"] = None
+        else:                                            # click select
+            hit = ed.get("_press_hit")
+            if hit is None:
+                if not shift:
+                    ed["sel"] = set()
+            elif shift:
+                ed["sel"] ^= {hit}
+            else:
+                ed["sel"] = {hit}
+        ed["press"] = None
+        ed["_press_hit"] = None
+        self._ed_draw_overlay()
+
+    def _ed_on_arrow(self, event) -> str:
+        step = 10 if (event.state & 0x0001) else 1     # Shift = bigger step
+        dx = {"Left": -step, "Right": step}.get(event.keysym, 0)
+        dy = {"Up": -step, "Down": step}.get(event.keysym, 0)
+        self._ed_nudge(dx, dy)
+        return "break"
+
+    def _ed_nudge(self, dxpx, dypx) -> None:
+        import inky_render
+        ed = self._ed
+        if not ed["sel"]:
+            return
+        W, H = ed["img"].width, ed["img"].height
+        dxn, dyn = dxpx / W, dypx / H
+        cur = inky_render._resolve_layout(ed["orient"], self.settings)
+        over = self._ed_over_root()
+        for eid in ed["sel"]:
+            v = cur[eid]
+            if eid == "graph":
+                over[eid] = {"x": v[0] + dxn, "y": v[1] + dyn, "w": v[2], "h": v[3]}
+            else:
+                over[eid] = {"x": v[0] + dxn, "y": v[1] + dyn, "size": v[2]}
+        ed["canvas"].move("sel", dxpx * ed["scale"], dypx * ed["scale"])  # instant feedback
+        self._ed_schedule_save()
+        self._ed_schedule_render()
+
+    def _ed_font(self, delta) -> str:
+        import inky_render
+        ed = self._ed
+        if not ed["sel"]:
+            return "break"
+        cur = inky_render._resolve_layout(ed["orient"], self.settings)
+        over = self._ed_over_root()
+        for eid in ed["sel"]:
+            v = cur[eid]
+            if eid == "graph":       # no font — scale the box instead
+                f = 1.0 + 0.03 * delta
+                over[eid] = {"x": v[0], "y": v[1],
+                             "w": max(0.1, v[2] * f), "h": max(0.1, v[3] * f)}
+            else:
+                over[eid] = {"x": v[0], "y": v[1], "size": max(4, int(v[2]) + delta)}
+        self._ed_schedule_save()
+        self._ed_schedule_render()
+        return "break"
+
+    def _ed_reset(self) -> None:
+        from tkinter import messagebox
+        if not messagebox.askyesno("Reset layout",
+                                   "Reset all positions and font sizes to defaults "
+                                   f"for {self._ed['orient']} orientation?",
+                                   parent=self._ed["dlg"]):
+            return
+        lay = self.settings.get("inky_layout")
+        if isinstance(lay, dict):
+            lay.pop(self._ed["orient"], None)
+        self._ed["sel"] = set()
+        self._ed_save()
+        self._ed_render()
+
+    def _push_to_inky(self, img, status_var, send_btn) -> None:
+        """Push the rendered image to the panel on a background thread (~35s).
+
+        Delegates to inky_update.send_to_inky so the GUI and the headless
+        updater share one code path (rotation, flip, saturation)."""
+        sat  = self.settings.get("inky_saturation", 60) / 100.0
+        flip = bool(self.settings.get("inky_flip", 0))
+        send_btn.config(state=tk.DISABLED)
+        status_var.set("Sending to Inky… (~35s, panel will flash — normal)")
+
+        def _work():
+            try:
+                import inky_update
+                ok, msg = inky_update.send_to_inky(img, saturation=sat, flip=flip)
+                text = ("✓ Sent to Inky — panel updated." if ok
+                        else f"✗ Inky error: {msg}")
+            except Exception as e:
+                text = f"✗ Inky error: {e}"
+            self.root.after(0, lambda: status_var.set(text))
+            self.root.after(0, lambda: send_btn.config(state=tk.NORMAL))
+
+        threading.Thread(target=_work, daemon=True).start()
 
     def _set_status(self, msg: str, color: str = "#555555") -> None:
         self.status_var.set(msg)

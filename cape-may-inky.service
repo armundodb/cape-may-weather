@@ -1,0 +1,19 @@
+[Unit]
+Description=Cape May Weather — Inky Impression headless updater
+Documentation=https://github.com/armundodb/cape-may-weather
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=armundo
+Group=armundo
+WorkingDirectory=/home/armundo/cape-may-weather
+# No display needed — pure SPI + Agg rendering
+Environment=MPLBACKEND=Agg
+ExecStart=/home/armundo/.virtualenvs/pimoroni/bin/python /home/armundo/cape-may-weather/inky_update.py --loop
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

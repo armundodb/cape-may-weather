@@ -1,5 +1,5 @@
 {
-  "windsurfer_min": 16,
+  "windsurfer_min": 6,
   "windsurfer_max": 27,
   "wingfoiler_min": 11,
   "wingfoiler_max": 20,
@@ -20,8 +20,8 @@
       "h": 120
     },
     "next": {
-      "x": 20,
-      "y": 145,
+      "x": 169,
+      "y": 32,
       "w": 295,
       "h": 155
     },
@@ -58,5 +58,78 @@
   "panel_next_visible": 1,
   "panel_clock_visible": 1,
   "panel_graph_visible": 1,
-  "show_panel_titles": 1
+  "show_panel_titles": 1,
+  "inky_orientation": "portrait",
+  "inky_saturation": 60,
+  "inky_refresh_min": 15,
+  "inky_flip": 0,
+  "inky_layout": {
+    "portrait": {
+      "temp": {
+        "x": 0.06,
+        "y": 0.225,
+        "size": 28
+      },
+      "wind_label": {
+        "x": 0.06,
+        "y": 0.29375,
+        "size": 14
+      },
+      "wind_val": {
+        "x": 0.279166,
+        "y": 0.29375,
+        "size": 15
+      },
+      "gusts_label": {
+        "x": 0.06,
+        "y": 0.335,
+        "size": 14
+      },
+      "gusts_val": {
+        "x": 0.277083,
+        "y": 0.335,
+        "size": 15
+      },
+      "dir_label": {
+        "x": 0.06,
+        "y": 0.37625,
+        "size": 14
+      },
+      "dir_val": {
+        "x": 0.279166,
+        "y": 0.37625,
+        "size": 15
+      },
+      "water_val": {
+        "x": 0.277083,
+        "y": 0.42,
+        "size": 15
+      },
+      "wtemp_label": {
+        "x": 0.06,
+        "y": 0.4625,
+        "size": 14
+      },
+      "wtemp_val": {
+        "x": 0.285416,
+        "y": 0.4625,
+        "size": 15
+      },
+      "next_header": {
+        "x": 0.06,
+        "y": 0.5725,
+        "size": 13
+      },
+      "tide_type": {
+        "x": 0.06,
+        "y": 0.6075,
+        "size": 21
+      },
+      "tide_height": {
+        "x": 0.06,
+        "y": 0.7,
+        "size": 14
+      }
+    }
+  }
 }
