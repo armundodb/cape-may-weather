@@ -1484,11 +1484,42 @@ class WeatherApp:
         dlg = tk.Toplevel(self.root)
         dlg.title("Settings")
         dlg.resizable(False, False)
-        dlg.grab_set()
-        dlg.focus_set()
+        # Wayland/XWayland opens Tk pop-ups behind the (often fullscreen) main
+        # window. Mark it transient and force it to the front so it's visible.
+        # NB: deliberately NO grab_set() — under XWayland/labwc a grab can stick
+        # after the dialog is destroyed and freeze the main window (so you can't
+        # reopen Settings). transient + lift + topmost handle visibility.
+        dlg.transient(self.root)
+        dlg.geometry("+60+40")
+        dlg.lift()
+        dlg.attributes("-topmost", True)
+        dlg.after(400, lambda: dlg.winfo_exists() and dlg.attributes("-topmost", False))
+        dlg.focus_force()
+
+        # Bottom action bar — packed FIRST (side=BOTTOM) so Save/Cancel are always
+        # reserved and visible, no matter how tall the scrolling tabs get.
+        ttk.Separator(dlg, orient="horizontal").pack(side=tk.BOTTOM, fill=tk.X)
+        btn_row = tk.Frame(dlg)
+        btn_row.pack(side=tk.BOTTOM, fill=tk.X, pady=8)
 
         nb = ttk.Notebook(dlg)
-        nb.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 0))
+        nb.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(10, 0))
+
+        def _close_dlg():
+            # Defensively drop any grab and hand focus back to the main window so
+            # it stays clickable (XWayland can otherwise leave it unresponsive).
+            try:
+                dlg.grab_release()
+            except tk.TclError:
+                pass
+            dlg.destroy()
+            try:
+                self.root.focus_force()
+                self.root.lift()
+            except tk.TclError:
+                pass
+
+        dlg.protocol("WM_DELETE_WINDOW", _close_dlg)
 
         # ── helpers ──────────────────────────────────────────────────────────
         def _spinbox(parent, row, col, key, lo, hi, label, unit=""):
@@ -1527,9 +1558,55 @@ class WeatherApp:
             btn.config(command=_pick)
             btn.grid(row=row, column=1, sticky="w")
 
+        # Scrollable notebook tab: a Canvas + vertical Scrollbar wrapping an
+        # inner content frame (returned).  Heights are capped in _finalise_tabs
+        # so tall tabs scroll instead of pushing the Save buttons off-screen.
+        scroll_tabs = []  # (canvas, inner) pairs, sized once content is built
+
+        def _scrollable_tab(title):
+            outer = tk.Frame(nb)
+            nb.add(outer, text=title)
+            canvas = tk.Canvas(outer, highlightthickness=0, bd=0)
+            vsb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+            canvas.configure(yscrollcommand=vsb.set)
+            vsb.pack(side=tk.RIGHT, fill=tk.Y)
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+            inner = tk.Frame(canvas, padx=14, pady=10)
+            win = canvas.create_window((0, 0), window=inner, anchor="nw")
+            inner.bind("<Configure>",
+                       lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+            canvas.bind("<Configure>",
+                        lambda e: canvas.itemconfigure(win, width=e.width))
+
+            def _wheel(e):
+                num, delta = getattr(e, "num", 0), getattr(e, "delta", 0)
+                canvas.yview_scroll(-1 if (num == 4 or delta > 0) else 1, "units")
+
+            def _bind_wheel(_e):
+                canvas.bind_all("<MouseWheel>", _wheel)  # Windows / macOS
+                canvas.bind_all("<Button-4>", _wheel)    # X11 scroll up
+                canvas.bind_all("<Button-5>", _wheel)    # X11 scroll down
+
+            def _unbind_wheel(_e):
+                for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                    canvas.unbind_all(seq)
+
+            canvas.bind("<Enter>", _bind_wheel)
+            canvas.bind("<Leave>", _unbind_wheel)
+            scroll_tabs.append((canvas, inner))
+            return inner
+
+        def _finalise_tabs():
+            dlg.update_idletasks()
+            maxh = max(320, self.root.winfo_screenheight() - 260)
+            for canvas, inner in scroll_tabs:
+                canvas.configure(width=inner.winfo_reqwidth(),
+                                 height=min(inner.winfo_reqheight(), maxh),
+                                 scrollregion=canvas.bbox("all"))
+
         # ── Tab 1: Wind Icons ─────────────────────────────────────────────
-        tab_icons = tk.Frame(nb, padx=14, pady=10)
-        nb.add(tab_icons, text="  Wind Icons  ")
+        tab_icons = _scrollable_tab("  Wind Icons  ")
 
         spb:       dict[str, tk.Spinbox]   = {}
         path_vars: dict[str, tk.StringVar] = {}
@@ -1565,8 +1642,7 @@ class WeatherApp:
                                                        sticky="w", pady=(0, 4))
 
         # ── Tab 2: Display ────────────────────────────────────────────────
-        tab_disp = tk.Frame(nb, padx=14, pady=10)
-        nb.add(tab_disp, text="  Display  ")
+        tab_disp = _scrollable_tab("  Display  ")
 
         # Inky Impression (e-ink) output
         lf_inky = ttk.LabelFrame(tab_disp, text="  Inky Impression (E-Ink)  ",
@@ -1751,15 +1827,18 @@ class WeatherApp:
             self._save_settings(new)
             if self._wind_startup_done:
                 self._apply_wind_icon_rules()
-            dlg.destroy()
+            _close_dlg()
 
-        btn_row = tk.Frame(dlg)
-        btn_row.pack(pady=10)
-        tk.Button(btn_row, text="Cancel", command=dlg.destroy,
-                  font=("Arial", 10), padx=14, pady=4).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(btn_row, text="Save", command=_save,
-                  bg="#0055aa", fg="white", activebackground="#0077cc",
-                  font=("Arial", 10, "bold"), padx=14, pady=4).pack(side=tk.LEFT)
+        # Buttons live in the bottom bar reserved above (right-aligned, prominent).
+        tk.Button(btn_row, text="  ✓  Save changes  ", command=_save,
+                  bg="#0a8a0a", fg="white", activebackground="#0aa00a",
+                  font=("Arial", 11, "bold"), relief=tk.FLAT,
+                  padx=16, pady=6, cursor="hand2").pack(side=tk.RIGHT, padx=(8, 12))
+        tk.Button(btn_row, text="Cancel", command=_close_dlg,
+                  font=("Arial", 10), padx=14, pady=6,
+                  cursor="hand2").pack(side=tk.RIGHT)
+
+        _finalise_tabs()  # cap tab heights so overflow scrolls
 
     # ── Inky Impression (e-ink) export ─────────────────────────────────────────
 
@@ -1833,13 +1912,17 @@ class WeatherApp:
         dlg = tk.Toplevel(self.root)
         dlg.title("Inky Preview — Layout Editor")
         dlg.configure(bg="#222222")
-        # Wayland/XWayland tends to open Tk pop-ups behind the parent — force it
-        # to a visible spot and bring it to the front.
+        # Wayland/XWayland tends to open Tk pop-ups behind the parent — mark it a
+        # transient dialog of the main window (labwc raises those above the parent)
+        # and grab focus, matching the Settings dialog which opens reliably.
+        dlg.transient(self.root)
         dlg.geometry("+60+40")
         dlg.lift()
         dlg.attributes("-topmost", True)
         dlg.after(400, lambda: dlg.winfo_exists() and dlg.attributes("-topmost", False))
         dlg.focus_force()
+        # No grab_set() here either — a stuck grab under XWayland can freeze the
+        # main window after this editor closes. transient + lift + topmost suffice.
 
         body = tk.Frame(dlg, bg="#222222")
         body.pack(padx=12, pady=12)
