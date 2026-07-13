@@ -39,10 +39,11 @@ _CONFIG_FILE = Path(__file__).with_suffix(".json")
 
 
 def _sunset_string() -> str:
-    """Today's Cape May sunset (e.g. '8:27 PM'), or '' if unavailable."""
+    """Time for the sun graphic — today's sunset while the sun is up, otherwise
+    the next sunrise (e.g. '8:27 PM' / '5:45 AM'), or '' if unavailable."""
     try:
         import sunset
-        return sunset.sunset_string()
+        return sunset.current_sun_string()
     except Exception:
         return ""
 _DEFAULTS: dict = {

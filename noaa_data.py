@@ -160,7 +160,7 @@ def fetch_payload(settings: dict | None = None) -> dict:
         "tide": tide,
         "graph": _fetch_graph(now),
         "sport": " + ".join(sports) if sports else None,
-        "sunset": _sunset.sunset_string(now.date()),
+        "sunset": _sunset.current_sun_string(now),
     }
 
 

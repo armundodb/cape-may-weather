@@ -11,7 +11,7 @@ payload.
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 # Cape May, NJ — latitude north (+), longitude east (−, i.e. it is west).
 CAPE_MAY_LAT = 38.9351
@@ -56,6 +56,13 @@ def sunset_datetime(day: date | None = None,
     return utc.astimezone() if utc else None
 
 
+def sunrise_datetime(day: date | None = None,
+                     lat: float = CAPE_MAY_LAT, lon: float = CAPE_MAY_LON):
+    """Local (machine-timezone) datetime of sunrise, or None."""
+    utc = _solar_event(day or datetime.now().date(), lat, lon, "sunrise")
+    return utc.astimezone() if utc else None
+
+
 def sunset_string(day: date | None = None) -> str:
     """Today's sunset as e.g. '8:24 PM', or '' if it can't be computed."""
     try:
@@ -65,6 +72,35 @@ def sunset_string(day: date | None = None) -> str:
         return ""
 
 
+def current_sun_event(now: datetime | None = None):
+    """The sun event to display right now, as (kind, datetime):
+      - during daylight  → ('sunset',  today's sunset)
+      - once the sun has set (or before dawn) → ('sunrise', the next sunrise).
+    Returns (kind, None) if the time can't be computed."""
+    now = now or datetime.now()
+    if now.tzinfo is None:                  # treat naive input as local wall-clock
+        now = now.astimezone()
+    today = now.date()
+    sr = sunrise_datetime(today)
+    ss = sunset_datetime(today)
+    if sr and now < sr:                     # pre-dawn: still dark → next sunrise (today)
+        return ("sunrise", sr)
+    if ss and now < ss:                     # daytime → today's sunset
+        return ("sunset", ss)
+    return ("sunrise", sunrise_datetime(today + timedelta(days=1)))  # after sunset → next sunrise
+
+
+def current_sun_string(now: datetime | None = None) -> str:
+    """Time to show in the sun graphic — today's sunset while the sun is up,
+    otherwise the next sunrise. '' if it can't be computed."""
+    try:
+        _kind, dt = current_sun_event(now)
+        return dt.strftime("%-I:%M %p") if dt else ""
+    except Exception:
+        return ""
+
+
 if __name__ == "__main__":
-    print("sunset:", sunset_string())
-    print("full:  ", sunset_datetime())
+    print("sunset:  ", sunset_string())
+    print("sunrise: ", sunrise_datetime().strftime("%-I:%M %p") if sunrise_datetime() else "")
+    print("current: ", current_sun_event(), "->", current_sun_string())
