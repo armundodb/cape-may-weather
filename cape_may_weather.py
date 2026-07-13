@@ -36,6 +36,15 @@ REFRESH_MS   = 6 * 60 * 1000
 WINDOW_HOURS = 12
 
 _CONFIG_FILE = Path(__file__).with_suffix(".json")
+
+
+def _sunset_string() -> str:
+    """Today's Cape May sunset (e.g. '8:27 PM'), or '' if unavailable."""
+    try:
+        import sunset
+        return sunset.sunset_string()
+    except Exception:
+        return ""
 _DEFAULTS: dict = {
     # Wind sport icons
     "windsurfer_min":  16,  "windsurfer_max": 27,
@@ -1674,6 +1683,7 @@ class WeatherApp:
             },
             "graph": self._last_gd,
             "sport": " + ".join(sports) if sports else None,
+            "sunset": _sunset_string(),
         }
 
     def _render_inky_image(self, return_meta=False):
@@ -1971,7 +1981,7 @@ class WeatherApp:
                 f = 1.0 + 0.03 * delta
                 over[eid] = {"x": v[0], "y": v[1],
                              "w": max(0.1, v[2] * f), "h": max(0.1, v[3] * f)}
-            elif eid == "icon":      # scale the icon (width fraction), keep aspect
+            elif eid in ("icon", "sunset"):  # scale the graphic (width fraction), keep aspect
                 f = 1.0 + 0.06 * delta
                 over[eid] = {"x": v[0], "y": v[1], "size": max(0.03, v[2] * f)}
             else:

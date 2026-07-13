@@ -66,6 +66,8 @@ TEXT_ELEMENTS = [
     ("tide_type",   lambda p, g: p.get("tide", {}).get("type", "N/A"),       None,    "bold"),
     ("tide_time",   lambda p, g: p.get("tide", {}).get("time", "N/A"),       E_FG,    "normal"),
     ("tide_height", lambda p, g: f"{p.get('tide', {}).get('height', 'N/A')} ft MLLW", E_DIM, "normal"),
+    # sunset clock — drawn on top of the sunset graphic (see render_eink)
+    ("sunset_time", lambda p, g: p.get("sunset", ""),                        E_HIGH,  "bold"),
 ]
 
 # Default layouts: id -> (x, y, size)  in normalised top-left coords; y grows down.
@@ -86,6 +88,9 @@ DEFAULT_LAYOUTS = {
         "tide_height": (0.06, 0.700, 13),
         "graph":       (0.06, 0.760, 0.90, 0.215),
         "icon":        (0.66, 0.030, 0.28),   # (x, y, width-fraction); top-right
+        # sunset graphic centred above the air temp; time sits in its middle
+        "sunset":      (0.35, 0.010, 0.30),   # (x, y, width-fraction)
+        "sunset_time": (0.43, 0.066, 14),
     },
     "landscape": {
         "station":     (0.04, 0.05, 22),
@@ -102,12 +107,15 @@ DEFAULT_LAYOUTS = {
         "tide_height": (0.04, 0.955, 12),
         "graph":       (0.52, 0.14, 0.45, 0.78),
         "icon":        (0.84, 0.03, 0.14),    # (x, y, width-fraction); top-right
+        # sunset graphic centred above the air temp; time sits in its middle
+        "sunset":      (0.44, 0.020, 0.12),   # (x, y, width-fraction)
+        "sunset_time": (0.46, 0.085, 12),
     },
 }
 
 
 def selectable_ids() -> list:
-    return [e[0] for e in TEXT_ELEMENTS] + ["graph", "icon"]
+    return [e[0] for e in TEXT_ELEMENTS] + ["graph", "icon", "sunset"]
 
 
 def _chosen_icon(payload: dict, settings: dict | None):
@@ -128,6 +136,17 @@ def _chosen_icon(payload: dict, settings: dict | None):
     if "Wingfoil" in sport:
         return resolve("wingfoiler_icon", "wingfoiler_icon.png")
     return None
+
+
+def _sunset_image(settings: dict | None):
+    """Path of the sunset graphic (full-colour PNG), or None. Defaults to the
+    sunset_icon.png bundled with the repo; overridable via settings['sunset_icon']."""
+    settings = settings or {}
+    base = os.path.dirname(os.path.abspath(__file__))
+    p = (settings.get("sunset_icon") or "").strip() or "sunset_icon.png"
+    if not os.path.isabs(p):
+        p = os.path.join(base, p)
+    return p if os.path.exists(p) else None
 
 
 def _prep_icon(path):
@@ -267,9 +286,12 @@ def render_eink(payload: dict, orientation: str = "portrait",
             col = E_HIGH if "High" in txt else (E_LOW if "Low" in txt else E_FG)
         elif eid == "temp":
             col = _temp_color(g("air_temp"))
-        artists[eid] = fig.text(x, 1.0 - y, txt, fontsize=size, color=col or E_FG,
-                                fontweight=weight, ha="left", va="top",
-                                family="DejaVu Sans")
+        art = fig.text(x, 1.0 - y, txt, fontsize=size, color=col or E_FG,
+                       fontweight=weight, ha="left", va="top",
+                       family="DejaVu Sans")
+        if eid == "sunset_time":
+            art.set_zorder(6)      # keep the time above the sunset graphic
+        artists[eid] = art
 
     # Graph in its own axes rectangle (matplotlib rect uses bottom-left origin).
     gx, gy, gw, gh = layout["graph"]
@@ -281,6 +303,28 @@ def render_eink(payload: dict, orientation: str = "portrait",
         ax.axis("off")
         ax.text(0.5, 0.5, "No tide graph data", fontsize=11, color=E_DIM,
                 ha="center", va="center")
+
+    # Sunset graphic (full colour) — sits above the air temp, always shown.
+    # Drawn with a low zorder so the "sunset_time" text (zorder 6) lands on top.
+    sunset_bbox = None
+    sunset_path = _sunset_image(settings)
+    if sunset_path and "sunset" in layout:
+        import numpy as np
+        sx, sy, ssize = layout["sunset"]
+        try:
+            sim = Image.open(sunset_path).convert("RGBA")
+            bb = sim.getchannel("A").point(lambda v: 255 if v > 10 else 0).getbbox()
+            if bb:                            # trim transparent margins → true art size
+                sim = sim.crop(bb)
+            wfrac = ssize
+            hfrac = wfrac * (sim.height / sim.width) * (w / h)  # keep pixel aspect
+            sax = fig.add_axes([sx, 1.0 - sy - hfrac, wfrac, hfrac])
+            sax.imshow(np.asarray(sim))       # RGBA → transparency preserved
+            sax.axis("off")
+            sax.set_zorder(0.5)
+            sunset_bbox = [sx * w, sy * h, (sx + wfrac) * w, (sy + hfrac) * h]
+        except Exception:
+            sunset_bbox = None
 
     # Activity icon (windsurfer / wingfoiler) — only when conditions are good.
     icon_bbox = None
@@ -317,6 +361,9 @@ def render_eink(payload: dict, orientation: str = "portrait",
     if icon_bbox is not None:
         ix, iy, isize = layout["icon"]
         meta["icon"] = {"x": ix, "y": iy, "size": isize, "bbox": icon_bbox}
+    if sunset_bbox is not None:
+        sx, sy, ssize = layout["sunset"]
+        meta["sunset"] = {"x": sx, "y": sy, "size": ssize, "bbox": sunset_bbox}
     return img, meta
 
 
@@ -326,7 +373,7 @@ if __name__ == "__main__":
         "conditions": {"air_temp": "78.4", "wind_speed": "12.3", "wind_gust": "18.0",
                        "wind_dir": "SW (225°)", "water_level": "+1.23", "water_temp": "71.2"},
         "tide": {"type": "High Tide", "time": "Sat Jul 12  4:10 PM", "height": "5.12"},
-        "graph": None, "sport": "Windsurf",
+        "graph": None, "sport": "Windsurf", "sunset": "8:27 PM",
     }
     for orient in ("portrait", "landscape"):
         img, meta = render_eink(demo, orient, return_meta=True)

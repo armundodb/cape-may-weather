@@ -41,6 +41,8 @@ _DEFAULTS = {
     "wingfoiler_min": 11, "wingfoiler_max": 18,
     # activity icon paths (relative paths resolve next to inky_render.py)
     "windsurfer_icon": "", "wingfoiler_icon": "",
+    # sunset graphic (blank → bundled sunset_icon.png)
+    "sunset_icon": "",
 }
 
 

@@ -12,6 +12,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import requests
 
+import sunset as _sunset
+
 STATION_ID   = "8536110"
 STATION_NAME = "Cape May, NJ"
 BASE_URL     = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
@@ -158,6 +160,7 @@ def fetch_payload(settings: dict | None = None) -> dict:
         "tide": tide,
         "graph": _fetch_graph(now),
         "sport": " + ".join(sports) if sports else None,
+        "sunset": _sunset.sunset_string(now.date()),
     }
 
 
