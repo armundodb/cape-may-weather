@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 import time
 from pathlib import Path
@@ -37,12 +38,18 @@ _DEFAULTS = {
     # headless panel matches what you arranged in the GUI
     "inky_layout":    None,
     # sport thresholds (mirrors the app; used for the "Good for" line)
-    "windsurfer_min": 16, "windsurfer_max": 27,
+    "paddle_min":     0, "paddle_max":      5,
+    "hobie_min":      5, "hobie_max":      10,
     "wingfoiler_min": 11, "wingfoiler_max": 18,
+    "windsurfer_min": 16, "windsurfer_max": 27,
     # activity icon paths (relative paths resolve next to inky_render.py)
+    "paddle_icon": "", "hobie_icon": "",
     "windsurfer_icon": "", "wingfoiler_icon": "",
     # sunset graphic (blank → bundled sunset_icon.png)
     "sunset_icon": "",
+    # decorative seagull (top layer): blank icon → bundled seagull_icon.png;
+    # seagull_odds is the % chance it shows on each reload
+    "seagull_icon": "", "seagull_odds": 30,
 }
 
 
@@ -93,6 +100,11 @@ def update_once(cfg: dict, dry_run: bool = False) -> bool:
     print(f"[{stamp}] fetching NOAA data…", flush=True)
     payload = noaa_data.fetch_payload(cfg)
     orient = cfg.get("inky_orientation", "portrait")
+    # Roll the seagull once per reload from the configured odds (0-100%).
+    odds = max(0, min(100, int(cfg.get("seagull_odds", 30))))
+    payload["show_seagull"] = random.random() < (odds / 100.0)
+    print(f"[{stamp}] seagull: {'shown' if payload['show_seagull'] else 'hidden'} "
+          f"(odds {odds}%)", flush=True)
     img = inky_render.render_eink(payload, orient, settings=cfg)
     print(f"[{stamp}] rendered {orient} {img.size}  "
           f"air={payload['conditions'].get('air_temp')}  "

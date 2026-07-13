@@ -91,6 +91,8 @@ DEFAULT_LAYOUTS = {
         # sunset graphic centred above the air temp; time sits in its middle
         "sunset":      (0.35, 0.010, 0.30),   # (x, y, width-fraction)
         "sunset_time": (0.43, 0.066, 14),
+        # decorative seagull — top layer, default top-left corner
+        "seagull":     (0.02, 0.02, 0.16),    # (x, y, width-fraction)
     },
     "landscape": {
         "station":     (0.04, 0.05, 22),
@@ -110,17 +112,20 @@ DEFAULT_LAYOUTS = {
         # sunset graphic centred above the air temp; time sits in its middle
         "sunset":      (0.44, 0.020, 0.12),   # (x, y, width-fraction)
         "sunset_time": (0.46, 0.085, 12),
+        # decorative seagull — top layer, default top-left corner
+        "seagull":     (0.02, 0.03, 0.10),    # (x, y, width-fraction)
     },
 }
 
 
 def selectable_ids() -> list:
-    return [e[0] for e in TEXT_ELEMENTS] + ["graph", "icon", "sunset"]
+    return [e[0] for e in TEXT_ELEMENTS] + ["graph", "icon", "sunset", "seagull"]
 
 
 def _chosen_icon(payload: dict, settings: dict | None):
-    """Path of the activity icon to show, or None. Windsurfer takes precedence
-    when both sports are good.  Falls back to the icons bundled with the repo."""
+    """Path of the activity icon to show, or None. When several sports match the
+    wind, the highest-energy one wins (only one icon fits the panel). Falls back
+    to the icons bundled with the repo."""
     sport = payload.get("sport") or ""
     settings = settings or {}
     base = os.path.dirname(os.path.abspath(__file__))
@@ -131,10 +136,15 @@ def _chosen_icon(payload: dict, settings: dict | None):
             p = os.path.join(base, p)
         return p if os.path.exists(p) else None
 
-    if "Windsurf" in sport:
-        return resolve("windsurfer_icon", "windsurfer_icon.png")
-    if "Wingfoil" in sport:
-        return resolve("wingfoiler_icon", "wingfoiler_icon.png")
+    # highest wind sport first → its icon wins on the single-icon panel
+    for token, key, default in (
+        ("Windsurf", "windsurfer_icon", "windsurfer_icon.png"),
+        ("Wingfoil", "wingfoiler_icon", "wingfoiler_icon.png"),
+        ("Hobie",    "hobie_icon",      "hobie_icon.png"),
+        ("Paddle",   "paddle_icon",     "paddle_icon.png"),
+    ):
+        if token in sport:
+            return resolve(key, default)
     return None
 
 
@@ -144,6 +154,18 @@ def _sunset_image(settings: dict | None):
     settings = settings or {}
     base = os.path.dirname(os.path.abspath(__file__))
     p = (settings.get("sunset_icon") or "").strip() or "sunset_icon.png"
+    if not os.path.isabs(p):
+        p = os.path.join(base, p)
+    return p if os.path.exists(p) else None
+
+
+def _seagull_image(settings: dict | None):
+    """Path of the decorative seagull graphic (full-colour PNG), or None.
+    Defaults to the seagull_icon.png bundled with the repo; overridable via
+    settings['seagull_icon']."""
+    settings = settings or {}
+    base = os.path.dirname(os.path.abspath(__file__))
+    p = (settings.get("seagull_icon") or "").strip() or "seagull_icon.png"
     if not os.path.isabs(p):
         p = os.path.join(base, p)
     return p if os.path.exists(p) else None
@@ -344,6 +366,31 @@ def render_eink(payload: dict, orientation: str = "portrait",
         except Exception:
             icon_bbox = None
 
+    # Decorative seagull — the TOP layer (above every other element). Shown at
+    # random per screen reload: the caller sets payload["show_seagull"] from the
+    # configured odds; when the key is absent (editor / demos) it always shows so
+    # it can be positioned.
+    seagull_bbox = None
+    if payload.get("show_seagull", True):
+        seagull_path = _seagull_image(settings)
+        if seagull_path and "seagull" in layout:
+            import numpy as np
+            gx0, gy0, gsize = layout["seagull"]
+            try:
+                gim = Image.open(seagull_path).convert("RGBA")
+                bb = gim.getchannel("A").point(lambda v: 255 if v > 10 else 0).getbbox()
+                if bb:                        # trim transparent margins → true art size
+                    gim = gim.crop(bb)
+                wfrac = gsize
+                hfrac = wfrac * (gim.height / gim.width) * (w / h)  # keep pixel aspect
+                gax = fig.add_axes([gx0, 1.0 - gy0 - hfrac, wfrac, hfrac])
+                gax.imshow(np.asarray(gim))   # RGBA → transparency preserved
+                gax.axis("off")
+                gax.set_zorder(30)            # top layer — above the activity icon
+                seagull_bbox = [gx0 * w, gy0 * h, (gx0 + wfrac) * w, (gy0 + hfrac) * h]
+            except Exception:
+                seagull_bbox = None
+
     canvas = FigureCanvasAgg(fig)
     canvas.draw()
     img = _fig_to_image(canvas)
@@ -366,6 +413,9 @@ def render_eink(payload: dict, orientation: str = "portrait",
     if sunset_bbox is not None:
         sx, sy, ssize = layout["sunset"]
         meta["sunset"] = {"x": sx, "y": sy, "size": ssize, "bbox": sunset_bbox}
+    if seagull_bbox is not None:
+        gx0, gy0, gsize = layout["seagull"]
+        meta["seagull"] = {"x": gx0, "y": gy0, "size": gsize, "bbox": seagull_bbox}
     return img, meta
 
 

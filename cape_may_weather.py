@@ -47,11 +47,19 @@ def _sunset_string() -> str:
     except Exception:
         return ""
 _DEFAULTS: dict = {
-    # Wind sport icons
-    "windsurfer_min":  16,  "windsurfer_max": 27,
+    # Wind sport icons (shown when wind falls in each sport's knot range)
+    "paddle_min":       0,  "paddle_max":      5,
+    "hobie_min":        5,  "hobie_max":      10,
     "wingfoiler_min":  11,  "wingfoiler_max": 18,
+    "windsurfer_min":  16,  "windsurfer_max": 27,
+    "paddle_icon":      "",
+    "hobie_icon":       "",
     "windsurfer_icon":  "",
     "wingfoiler_icon":  "",
+    # Decorative seagull (top layer). Placement/size live in inky_layout;
+    # seagull_odds is the % chance it appears on each panel reload.
+    "seagull_icon":     "",
+    "seagull_odds":     30,
     # Fullscreen
     "controls_timeout": 15,
     # Layout
@@ -198,6 +206,78 @@ def _draw_wingfoiler_icon(ax) -> None:
     ax.fill(cx, cy, color="none", ec=K, lw=1.5, zorder=8)
 
 
+def _draw_paddleboard_icon(ax) -> None:
+    """Simplified paddleboarder: stick figure standing on a SUP with a paddle, waves."""
+    B, W, K = MM_ACC, MM_BG, MM_FG
+    ax.clear()
+    ax.set_xlim(0, 10); ax.set_ylim(0, 10)
+    ax.set_aspect("equal"); ax.axis("off"); ax.set_facecolor(MM_BG)
+
+    wx = np.linspace(0.3, 9.7, 200)
+    for dy in (0, 0.6):
+        ax.plot(wx, 1.4 + dy + 0.22*np.sin((wx + dy*1.5)*2.3),
+                color=B, lw=1.8, solid_capstyle="round")
+
+    # board (long lens shape riding the water)
+    ax.add_patch(Polygon(
+        [(1.2,2.1),(8.0,2.1),(8.7,2.35),(8.0,2.6),(1.2,2.6),(0.7,2.35)], fc=K, ec=K))
+
+    # paddle: shaft + T-grip + blade
+    ax.plot([6.3, 5.25], [8.9, 2.7], color=K, lw=3.2, solid_capstyle="round", zorder=6)
+    ax.plot([5.75, 6.85], [8.9, 8.6], color=K, lw=3.2, solid_capstyle="round", zorder=6)
+    ax.add_patch(Polygon([(4.95,2.7),(5.55,2.7),(5.4,1.75),(5.1,1.75)],
+                          fc=K, ec=K, zorder=6))
+
+    # bold stick figure standing on the board
+    ax.add_patch(Circle((4.3, 7.55), 0.5, fc=K, ec=K, zorder=7))
+    ax.plot([4.3, 4.3], [7.05, 4.3], color=K, lw=3.4, solid_capstyle="round", zorder=7)
+    ax.plot([4.3, 6.3], [6.3, 8.1], color=K, lw=3.0, solid_capstyle="round", zorder=7)
+    ax.plot([4.3, 5.7], [5.5, 3.9], color=K, lw=3.0, solid_capstyle="round", zorder=7)
+    ax.plot([4.3, 3.6], [4.3, 2.7], color=K, lw=3.4, solid_capstyle="round", zorder=7)
+    ax.plot([4.3, 5.0], [4.3, 2.7], color=K, lw=3.4, solid_capstyle="round", zorder=7)
+
+
+def _draw_hobiecat_icon(ax) -> None:
+    """Simplified Hobie catamaran: twin hulls, mast, mainsail + jib, waves."""
+    B, W, K = MM_ACC, MM_BG, MM_FG
+    ax.clear()
+    ax.set_xlim(0, 10); ax.set_ylim(0, 10)
+    ax.set_aspect("equal"); ax.axis("off"); ax.set_facecolor(MM_BG)
+
+    wx = np.linspace(0.3, 9.7, 200)
+    for dy in (0, 0.6):
+        ax.plot(wx, 1.3 + dy + 0.22*np.sin((wx + dy*1.5)*2.3),
+                color=B, lw=1.8, solid_capstyle="round")
+
+    # twin hulls (near = white, far = teal to imply depth) + trampoline deck
+    ax.add_patch(Polygon(
+        [(1.5,2.05),(8.2,2.05),(8.9,2.3),(8.2,2.55),(1.5,2.55),(0.9,2.3)],
+        fc=B, ec=K, lw=2.0, zorder=3))
+    ax.add_patch(Polygon(
+        [(1.0,2.45),(7.7,2.45),(8.4,2.72),(7.7,2.99),(1.0,2.99),(0.4,2.72)],
+        fc=K, ec=K, zorder=4))
+    ax.plot([2.4, 6.6], [2.99, 2.99], color=K, lw=3.2, solid_capstyle="round", zorder=4)
+
+    # mast + boom
+    ax.plot([4.7, 4.7], [2.95, 9.4], color=K, lw=3.4, solid_capstyle="round", zorder=6)
+
+    # mainsail (triangle aft of the mast) with teal stripes
+    sail_pts = np.array([[4.7, 3.05], [4.7, 9.3], [1.4, 3.35]])
+    sail_p = Polygon(sail_pts, fc=W, ec=K, lw=2.2, zorder=5)
+    ax.add_patch(sail_p)
+    for i in range(6):
+        y0 = 3.4 + i * 1.0
+        stripe = Polygon([(1.0, y0), (4.7, y0), (4.7, y0+0.5), (1.0, y0+0.5)],
+                          fc=B, ec="none", zorder=6)
+        stripe.set_clip_path(sail_p)
+        ax.add_patch(stripe)
+    ax.add_patch(Polygon(sail_pts, fc="none", ec=K, lw=2.2, zorder=7))
+
+    # jib (small foresail)
+    ax.add_patch(Polygon([[4.7, 8.4], [4.7, 3.9], [7.7, 3.5]],
+                          fc=B, ec=K, lw=2.0, zorder=5))
+
+
 def _load_png_icon(ax, path: str, fig, bg: str = MM_BG) -> bool:
     """Render a PNG file onto ax over a solid background.  Returns True on success."""
     if not path:
@@ -216,6 +296,17 @@ def _load_png_icon(ax, path: str, fig, bg: str = MM_BG) -> bool:
         return True
     except Exception:
         return False
+
+
+# Wind sports shown when the current wind speed falls in the sport's range.
+# Listed low → high wind. Config keys per sport: "<key>_min", "<key>_max",
+# "<key>_icon".  Fields: (key, GUI label, default drawer, payload token).
+_SPORTS = [
+    ("paddle",     "Paddleboard", _draw_paddleboard_icon, "Paddle"),
+    ("hobie",      "Hobie Cat",   _draw_hobiecat_icon,    "Hobie"),
+    ("wingfoiler", "Wingfoiler",  _draw_wingfoiler_icon,  "Wingfoil"),
+    ("windsurfer", "Windsurfer",  _draw_windsurfer_icon,  "Windsurf"),
+]
 
 
 # ── Draggable / resizable panel ────────────────────────────────────────────────
@@ -506,21 +597,21 @@ class WeatherApp:
         self._icon_frame = tk.Frame(atm_p.content, bg=MM_BG)
         self._icon_frame.pack(pady=(2, 2))
 
-        self._fig_ws = Figure(figsize=(1.4, 1.4), dpi=90)
-        self._fig_ws.set_facecolor(MM_BG)
-        self._fig_ws.subplots_adjust(0, 0, 1, 1)
-        self._ax_ws = self._fig_ws.add_subplot(111)
-        self._ws_canvas = FigureCanvasTkAgg(self._fig_ws, master=self._icon_frame)
-
-        self._fig_wf = Figure(figsize=(1.4, 1.4), dpi=90)
-        self._fig_wf.set_facecolor(MM_BG)
-        self._fig_wf.subplots_adjust(0, 0, 1, 1)
-        self._ax_wf = self._fig_wf.add_subplot(111)
-        self._wf_canvas = FigureCanvasTkAgg(self._fig_wf, master=self._icon_frame)
+        # One small figure/canvas per wind sport (see _SPORTS), shown when the
+        # current wind falls in that sport's range.
+        self._sport_icons = {}
+        for key, _label, drawer, _token in _SPORTS:
+            fig = Figure(figsize=(1.4, 1.4), dpi=90)
+            fig.set_facecolor(MM_BG)
+            fig.subplots_adjust(0, 0, 1, 1)
+            ax = fig.add_subplot(111)
+            canvas = FigureCanvasTkAgg(fig, master=self._icon_frame)
+            self._sport_icons[key] = {"fig": fig, "ax": ax,
+                                      "canvas": canvas, "drawer": drawer}
 
         self._refresh_icon_display()
-        self._ws_canvas.get_tk_widget().pack(side=tk.LEFT, padx=(4, 4))
-        self._wf_canvas.get_tk_widget().pack(side=tk.LEFT, padx=(4, 4))
+        for d in self._sport_icons.values():
+            d["canvas"].get_tk_widget().pack(side=tk.LEFT, padx=(4, 4))
         self.root.after(5000, self._end_startup_icons)
 
         # ── Water Conditions panel ────────────────────────────────────────
@@ -1220,19 +1311,15 @@ class WeatherApp:
     def _apply_wind_icon_rules(self) -> None:
         spd = self._last_wind_speed
         s   = self.settings
-        show_ws = spd is not None and s["windsurfer_min"] <= spd <= s["windsurfer_max"]
-        show_wf = spd is not None and s["wingfoiler_min"] <= spd <= s["wingfoiler_max"]
+        any_shown = False
+        for key, _label, _drawer, _token in _SPORTS:
+            w = self._sport_icons[key]["canvas"].get_tk_widget()
+            w.pack_forget()
+            if spd is not None and s[f"{key}_min"] <= spd <= s[f"{key}_max"]:
+                w.pack(side=tk.LEFT, padx=(4, 4))
+                any_shown = True
 
-        ws_w = self._ws_canvas.get_tk_widget()
-        wf_w = self._wf_canvas.get_tk_widget()
-        ws_w.pack_forget()
-        wf_w.pack_forget()
-        if show_ws:
-            ws_w.pack(side=tk.LEFT, padx=(4, 4))
-        if show_wf:
-            wf_w.pack(side=tk.LEFT, padx=(4, 4))
-
-        if show_ws or show_wf:
+        if any_shown:
             self._icon_frame.pack(pady=(4, 2))
         else:
             self._icon_frame.pack_forget()
@@ -1386,16 +1473,12 @@ class WeatherApp:
         self._apply_titlebar_visibility()
 
     def _refresh_icon_display(self) -> None:
-        if not _load_png_icon(self._ax_ws, self.settings.get("windsurfer_icon", ""),
-                               self._fig_ws, MM_BG):
-            self._fig_ws.set_facecolor(MM_BG)
-            _draw_windsurfer_icon(self._ax_ws)
-        if not _load_png_icon(self._ax_wf, self.settings.get("wingfoiler_icon", ""),
-                               self._fig_wf, MM_BG):
-            self._fig_wf.set_facecolor(MM_BG)
-            _draw_wingfoiler_icon(self._ax_wf)
-        self._ws_canvas.draw()
-        self._wf_canvas.draw()
+        for key, d in self._sport_icons.items():
+            if not _load_png_icon(d["ax"], self.settings.get(f"{key}_icon", ""),
+                                   d["fig"], MM_BG):
+                d["fig"].set_facecolor(MM_BG)
+                d["drawer"](d["ax"])
+            d["canvas"].draw()
 
     def _open_settings(self) -> None:
         dlg = tk.Toplevel(self.root)
@@ -1451,11 +1534,10 @@ class WeatherApp:
         spb:       dict[str, tk.Spinbox]   = {}
         path_vars: dict[str, tk.StringVar] = {}
 
-        for sport, icon_key, speed_keys in [
-            ("Windsurfer", "windsurfer_icon", ("windsurfer_min", "windsurfer_max")),
-            ("Wingfoiler", "wingfoiler_icon", ("wingfoiler_min", "wingfoiler_max")),
-        ]:
-            lf = ttk.LabelFrame(tab_icons, text=f"  {sport}  ", padding=(12, 6))
+        for key, label, _drawer, _token in _SPORTS:
+            icon_key = f"{key}_icon"
+            speed_keys = (f"{key}_min", f"{key}_max")
+            lf = ttk.LabelFrame(tab_icons, text=f"  {label}  ", padding=(12, 6))
             lf.pack(fill=tk.X, pady=(0, 8))
             lf.columnconfigure(1, weight=1)
             for row, (key, lbl) in enumerate(
@@ -1515,6 +1597,35 @@ class WeatherApp:
                       "(runs with no monitor attached).",
                  font=("Arial", 8), fg="#777777", wraplength=320, justify="left"
                  ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
+
+        # Seagull (decorative top-layer overlay)
+        lf_gull = ttk.LabelFrame(tab_disp, text="  Seagull (top layer)  ",
+                                 padding=(12, 6))
+        lf_gull.pack(fill=tk.X, pady=(0, 10))
+        lf_gull.columnconfigure(1, weight=1)
+        seagull_odds_sb = _spinbox(lf_gull, 0, 0, "seagull_odds", 0, 100,
+                                   "Chance of showing", "%")
+        tk.Label(lf_gull, text="Icon PNG:", font=("Arial", 10),
+                 anchor="w").grid(row=1, column=0, sticky="w", padx=(0, 10), pady=(8, 2))
+        gull_pv = tk.StringVar(value=self.settings.get("seagull_icon", ""))
+        path_vars["seagull_icon"] = gull_pv
+        tk.Entry(lf_gull, textvariable=gull_pv, font=("Arial", 9),
+                 width=30).grid(row=1, column=1, columnspan=2, sticky="ew", pady=(8, 2))
+
+        def _browse_gull(var=gull_pv):
+            p = filedialog.askopenfilename(
+                title="Select seagull PNG",
+                filetypes=[("PNG images", "*.png"), ("All files", "*.*")])
+            if p:
+                var.set(p)
+
+        tk.Button(lf_gull, text="Browse…", command=_browse_gull,
+                  font=("Arial", 9), padx=6).grid(row=2, column=1, sticky="w", pady=(0, 4))
+        tk.Label(lf_gull,
+                 text="Rolled on every panel reload. Position and size it in "
+                      "the Inky Preview editor (defaults to the top-left corner).",
+                 font=("Arial", 8), fg="#777777", wraplength=320, justify="left"
+                 ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         # Auto-hide
         lf_t = ttk.LabelFrame(tab_disp,
@@ -1633,6 +1744,10 @@ class WeatherApp:
             except ValueError:
                 new["inky_refresh_min"] = _DEFAULTS["inky_refresh_min"]
             new["inky_flip"] = inky_flip_var.get()
+            try:
+                new["seagull_odds"] = max(0, min(100, int(seagull_odds_sb.get())))
+            except ValueError:
+                new["seagull_odds"] = _DEFAULTS["seagull_odds"]
             self._save_settings(new)
             if self._wind_startup_done:
                 self._apply_wind_icon_rules()
@@ -1661,10 +1776,9 @@ class WeatherApp:
         spd = self._last_wind_speed
         sports = []
         if spd is not None:
-            if s["windsurfer_min"] <= spd <= s["windsurfer_max"]:
-                sports.append("Windsurf")
-            if s["wingfoiler_min"] <= spd <= s["wingfoiler_max"]:
-                sports.append("Wingfoil")
+            for key, _label, _drawer, token in _SPORTS:
+                if s[f"{key}_min"] <= spd <= s[f"{key}_max"]:
+                    sports.append(token)
 
         return {
             "station":   STATION_NAME,
@@ -1982,7 +2096,7 @@ class WeatherApp:
                 f = 1.0 + 0.03 * delta
                 over[eid] = {"x": v[0], "y": v[1],
                              "w": max(0.1, v[2] * f), "h": max(0.1, v[3] * f)}
-            elif eid in ("icon", "sunset"):  # scale the graphic (width fraction), keep aspect
+            elif eid in ("icon", "sunset", "seagull"):  # scale graphic (width fraction), keep aspect
                 f = 1.0 + 0.06 * delta
                 over[eid] = {"x": v[0], "y": v[1], "size": max(0.03, v[2] * f)}
             else:

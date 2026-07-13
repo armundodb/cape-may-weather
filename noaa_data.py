@@ -146,12 +146,18 @@ def fetch_payload(settings: dict | None = None) -> dict:
         pass
 
     # Wind-sport recommendation (same thresholds/keys as the GUI settings)
+    # (key, default min, default max, payload token) — low → high wind.
+    SPORTS = [
+        ("paddle",      0,  5, "Paddle"),
+        ("hobie",       5, 10, "Hobie"),
+        ("wingfoiler", 11, 18, "Wingfoil"),
+        ("windsurfer", 16, 27, "Windsurf"),
+    ]
     sports = []
     if wind_speed_val is not None:
-        if settings.get("windsurfer_min", 16) <= wind_speed_val <= settings.get("windsurfer_max", 27):
-            sports.append("Windsurf")
-        if settings.get("wingfoiler_min", 11) <= wind_speed_val <= settings.get("wingfoiler_max", 18):
-            sports.append("Wingfoil")
+        for key, dmin, dmax, token in SPORTS:
+            if settings.get(f"{key}_min", dmin) <= wind_speed_val <= settings.get(f"{key}_max", dmax):
+                sports.append(token)
 
     return {
         "station":   STATION_NAME,
