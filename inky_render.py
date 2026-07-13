@@ -13,6 +13,8 @@ element's pixel bounding box so the editor can hit-test and draw selections.
 """
 from __future__ import annotations
 
+import os
+
 import matplotlib
 matplotlib.use("Agg")  # no display / no Tk — safe to import headless
 import matplotlib.dates as mdates
@@ -54,12 +56,12 @@ TEXT_ELEMENTS = [
     ("gusts_label", lambda p, g: "Gusts",                                    E_FG,    "normal"),
     ("gusts_val",   lambda p, g: f"{g('wind_gust')} kt",                     E_FG,    "bold"),
     ("dir_label",   lambda p, g: "Dir",                                      E_FG,    "normal"),
-    ("dir_val",     lambda p, g: g("wind_dir"),                              E_FG,    "bold"),
+    # compass heading only — strip the "(NNN°)" degrees part
+    ("dir_val",     lambda p, g: g("wind_dir").split("(")[0].strip(),        E_FG,    "bold"),
     ("water_label", lambda p, g: "Water",                                    E_FG,    "normal"),
     ("water_val",   lambda p, g: f"{g('water_level')} ft",                   E_FG,    "bold"),
     ("wtemp_label", lambda p, g: "Temp",                                     E_FG,    "normal"),
     ("wtemp_val",   lambda p, g: f"{g('water_temp')}°F",                     E_FG,    "bold"),
-    ("sport",       lambda p, g: (f"► Good for: {p['sport']}" if p.get("sport") else ""), E_LOW, "bold"),
     ("next_header", lambda p, g: "NEXT TIDE",                                E_ACCENT, "bold"),
     ("tide_type",   lambda p, g: p.get("tide", {}).get("type", "N/A"),       None,    "bold"),
     ("tide_time",   lambda p, g: p.get("tide", {}).get("time", "N/A"),       E_FG,    "normal"),
@@ -78,12 +80,12 @@ DEFAULT_LAYOUTS = {
         "dir_label":   (0.06, 0.380, 14), "dir_val":   (0.30, 0.380, 17),
         "water_label": (0.06, 0.420, 14), "water_val": (0.30, 0.420, 17),
         "wtemp_label": (0.06, 0.460, 14), "wtemp_val": (0.30, 0.460, 17),
-        "sport":       (0.06, 0.500, 15),
         "next_header": (0.06, 0.570, 13),
         "tide_type":   (0.06, 0.610, 25),
         "tide_time":   (0.06, 0.660, 15),
         "tide_height": (0.06, 0.700, 13),
         "graph":       (0.06, 0.760, 0.90, 0.215),
+        "icon":        (0.66, 0.030, 0.28),   # (x, y, width-fraction); top-right
     },
     "landscape": {
         "station":     (0.04, 0.05, 22),
@@ -94,18 +96,72 @@ DEFAULT_LAYOUTS = {
         "dir_label":   (0.04, 0.50, 13), "dir_val":   (0.18, 0.50, 16),
         "water_label": (0.04, 0.57, 13), "water_val": (0.18, 0.57, 16),
         "wtemp_label": (0.04, 0.64, 13), "wtemp_val": (0.18, 0.64, 16),
-        "sport":       (0.04, 0.71, 14),
         "next_header": (0.04, 0.80, 12),
         "tide_type":   (0.04, 0.855, 22),
         "tide_time":   (0.04, 0.915, 13),
         "tide_height": (0.04, 0.955, 12),
         "graph":       (0.52, 0.14, 0.45, 0.78),
+        "icon":        (0.84, 0.03, 0.14),    # (x, y, width-fraction); top-right
     },
 }
 
 
 def selectable_ids() -> list:
-    return [e[0] for e in TEXT_ELEMENTS] + ["graph"]
+    return [e[0] for e in TEXT_ELEMENTS] + ["graph", "icon"]
+
+
+def _chosen_icon(payload: dict, settings: dict | None):
+    """Path of the activity icon to show, or None. Windsurfer takes precedence
+    when both sports are good.  Falls back to the icons bundled with the repo."""
+    sport = payload.get("sport") or ""
+    settings = settings or {}
+    base = os.path.dirname(os.path.abspath(__file__))
+
+    def resolve(key, default):
+        p = (settings.get(key) or "").strip() or default
+        if not os.path.isabs(p):
+            p = os.path.join(base, p)
+        return p if os.path.exists(p) else None
+
+    if "Windsurf" in sport:
+        return resolve("windsurfer_icon", "windsurfer_icon.png")
+    if "Wingfoil" in sport:
+        return resolve("wingfoiler_icon", "wingfoiler_icon.png")
+    return None
+
+
+def _prep_icon(path):
+    """Load an icon and make it e-ink readable: the supplied icons are white
+    line-art (for a dark UI) with a baked-in watermark, so recolour the solid
+    strokes to black on a transparent field, drop the watermark (a separate band
+    below the artwork), and crop to content."""
+    import numpy as np
+    ic = Image.open(path).convert("RGBA")
+    mask = ic.getchannel("A").point(lambda v: 255 if v >= 128 else 0)
+    m = np.asarray(mask) > 0
+
+    # Split into vertical bands of content separated by blank rows; keep the band
+    # with the most ink (the artwork), which discards the small watermark band.
+    rows = m.any(axis=1)
+    bands, start = [], None
+    for i, on in enumerate(rows):
+        if on and start is None:
+            start = i
+        elif not on and start is not None:
+            bands.append((start, i)); start = None
+    if start is not None:
+        bands.append((start, len(rows)))
+    if bands:
+        top, bot = max(bands, key=lambda g: m[g[0]:g[1]].sum())
+        cols = m[top:bot].any(axis=0)
+        left = int(cols.argmax())
+        right = len(cols) - int(cols[::-1].argmax())
+        ic = ic.crop((left, top, right, bot))
+        mask = mask.crop((left, top, right, bot))
+
+    solid = Image.new("RGBA", ic.size, (0, 0, 0, 255))
+    clear = Image.new("RGBA", ic.size, (0, 0, 0, 0))
+    return Image.composite(solid, clear, mask)
 
 
 def _temp_color(air_temp_str) -> str:
@@ -226,6 +282,22 @@ def render_eink(payload: dict, orientation: str = "portrait",
         ax.text(0.5, 0.5, "No tide graph data", fontsize=11, color=E_DIM,
                 ha="center", va="center")
 
+    # Activity icon (windsurfer / wingfoiler) — only when conditions are good.
+    icon_bbox = None
+    icon_path = _chosen_icon(payload, settings)
+    if icon_path and "icon" in layout:
+        ix, iy, isize = layout["icon"]
+        try:
+            ic = _prep_icon(icon_path)
+            wfrac = isize
+            hfrac = wfrac * (ic.height / ic.width) * (w / h)  # keep pixel aspect
+            iax = fig.add_axes([ix, 1.0 - iy - hfrac, wfrac, hfrac])
+            iax.imshow(ic)
+            iax.axis("off")
+            icon_bbox = [ix * w, iy * h, (ix + wfrac) * w, (iy + hfrac) * h]
+        except Exception:
+            icon_bbox = None
+
     canvas = FigureCanvasAgg(fig)
     canvas.draw()
     img = _fig_to_image(canvas)
@@ -242,6 +314,9 @@ def render_eink(payload: dict, orientation: str = "portrait",
                      "bbox": [bb.x0, h - bb.y1, bb.x1, h - bb.y0]}
     meta["graph"] = {"x": gx, "y": gy, "w": gw, "h": gh,
                      "bbox": [gx * w, gy * h, (gx + gw) * w, (gy + gh) * h]}
+    if icon_bbox is not None:
+        ix, iy, isize = layout["icon"]
+        meta["icon"] = {"x": ix, "y": iy, "size": isize, "bbox": icon_bbox}
     return img, meta
 
 

@@ -33,9 +33,14 @@ _DEFAULTS = {
     "inky_saturation":  60,
     "inky_refresh_min": 30,
     "inky_flip":        0,
+    # per-element layout overrides from the editor — MUST be loaded so the
+    # headless panel matches what you arranged in the GUI
+    "inky_layout":    None,
     # sport thresholds (mirrors the app; used for the "Good for" line)
     "windsurfer_min": 16, "windsurfer_max": 27,
     "wingfoiler_min": 11, "wingfoiler_max": 18,
+    # activity icon paths (relative paths resolve next to inky_render.py)
+    "windsurfer_icon": "", "wingfoiler_icon": "",
 }
 
 

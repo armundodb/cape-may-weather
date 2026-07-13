@@ -1971,6 +1971,9 @@ class WeatherApp:
                 f = 1.0 + 0.03 * delta
                 over[eid] = {"x": v[0], "y": v[1],
                              "w": max(0.1, v[2] * f), "h": max(0.1, v[3] * f)}
+            elif eid == "icon":      # scale the icon (width fraction), keep aspect
+                f = 1.0 + 0.06 * delta
+                over[eid] = {"x": v[0], "y": v[1], "size": max(0.03, v[2] * f)}
             else:
                 over[eid] = {"x": v[0], "y": v[1], "size": max(4, int(v[2]) + delta)}
         self._ed_schedule_save()
