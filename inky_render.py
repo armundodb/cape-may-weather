@@ -338,6 +338,8 @@ def render_eink(payload: dict, orientation: str = "portrait",
             iax = fig.add_axes([ix, 1.0 - iy - hfrac, wfrac, hfrac])
             iax.imshow(ic)
             iax.axis("off")
+            iax.set_zorder(20)     # always in the foreground — in front of the
+                                   # sunset graphic, its time, and any other icon
             icon_bbox = [ix * w, iy * h, (ix + wfrac) * w, (iy + hfrac) * h]
         except Exception:
             icon_bbox = None
